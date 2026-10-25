@@ -63,13 +63,15 @@ jobs:
           docker logs simple-ci-cd-app
           exit 1
 
+
       - name: OWASP ZAP DAST Scan
         uses: zaproxy/action-baseline@v0.15.0
         with:
           target: "http://localhost:3000"
           allow_issue_writing: false
-          fail_action: false
+          fail_action: true
           rules_file_name: zap-rules.tsv
+
 
       - name: Scan Docker Image with Trivy
         if: always()
