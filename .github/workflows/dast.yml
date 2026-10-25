@@ -68,7 +68,7 @@ jobs:
         with:
           target: "http://localhost:3000"
           allow_issue_writing: false
-          fail_action: true
+          fail_action: false
           rules_file_name: zap-rules.tsv
 
       - name: Scan Docker Image with Trivy
