@@ -1,0 +1,86 @@
+name: Experiment 7 - DAST Security Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Tests
+        run: npm test
+
+      - name: SonarQube SAST Scan
+        uses: SonarSource/sonarqube-scan-action@v8.2.1
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
+            -Dsonar.sources=.
+
+      - name: Build Docker Image
+        run: docker build -t simple-ci-cd:${{ github.sha }} .
+
+      - name: Run Application
+        run: |
+          docker run -d \
+            --name simple-ci-cd-app \
+            -p 3000:3000 \
+            simple-ci-cd:${{ github.sha }}
+
+      - name: Wait for Application
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/health; then
+              echo "Application is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Application failed to start"
+          docker logs simple-ci-cd-app
+          exit 1
+
+      - name: OWASP ZAP DAST Scan
+        uses: zaproxy/action-baseline@v0.15.0
+        with:
+          target: "http://localhost:3000"
+          allow_issue_writing: false
+          fail_action: true
+          rules_file_name: zap-rules.tsv
+
+      - name: Scan Docker Image with Trivy
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: simple-ci-cd:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: 0
+
+      - name: Stop Application
+        if: always()
+        run: docker rm -f simple-ci-cd-app || true
